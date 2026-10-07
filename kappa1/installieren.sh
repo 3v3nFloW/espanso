@@ -25,10 +25,15 @@ rm -rf "$ALT"
 ditto "$NEU" "$ALT"
 xattr -cr "$ALT"
 
+# Der Bedienungshilfen-Eintrag merkt sich die Signatur. Ein alter Eintrag (offizielles Espanso = Team 6424323YUH, oder ein
+# früherer Fork-Build mit anderer cdhash) passt nicht und lässt sich auch durch Aus/Ein nicht reparieren → zurücksetzen,
+# dann legt macOS beim Start einen passenden neu an (nur noch einschalten).
+tccutil reset Accessibility com.federicoterzi.espanso >/dev/null 2>&1 || true
+
 echo "4/4 starten"
 "$ALT/Contents/MacOS/espanso" service register >/dev/null 2>&1 || true
 "$ALT/Contents/MacOS/espanso" start || true
 echo
-echo "JETZT VON HAND: Systemeinstellungen › Datenschutz & Sicherheit › Bedienungshilfen:"
-echo "  alten „Espanso“-Eintrag mit „–“ entfernen, dann den neuen einschalten (bzw. mit „+“ /Applications/Espanso.app hinzufügen)."
+echo "JETZT VON HAND: in der macOS-Abfrage „Systemeinstellungen öffnen“ → unter Bedienungshilfen den Espanso-Schalter einschalten."
+echo "Prüfen: sqlite3 \"/Library/Application Support/com.apple.TCC/TCC.db\" \"select auth_value from access where client='com.federicoterzi.espanso'\"  → 2"
 echo "Danach: espanso status  → „espanso is running“"
