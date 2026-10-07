@@ -14,5 +14,5 @@ Each change is offered upstream as a separate pull request; once merged, this br
 | Included upstream PRs: buffer invalidation on modifier shortcuts, macOS paste modifier flags, worker respawn | #2818, #2763, #2725 |
 
 Build (macOS): `cargo build --no-default-features --features modulo,native-tls --release && bash scripts/create_bundle.sh target/release/espanso && codesign --force --deep -s - target/mac/Espanso.app`.
-`installieren.sh` / `zurueck.sh` swap `/Applications/Espanso.app` with a backup of the original. An ad-hoc signed build needs
+`install.sh` / `revert.sh` swap `/Applications/Espanso.app` with a backup of the original. An ad-hoc signed build needs
 the Accessibility permission again after every rebuild (the scripts reset the stale entry with `tccutil`).
