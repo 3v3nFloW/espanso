@@ -19,7 +19,7 @@
 
 use log::trace;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
 };
 
@@ -76,6 +76,9 @@ pub struct MatcherMiddleware<'a, State> {
     max_history_size: usize,
 
     modifier_status_provider: &'a dyn ModifierStateProvider,
+
+    // True right after an expansion was injected, until the next key event
+    after_injection: Cell<bool>,
 }
 
 impl<'a, State> MatcherMiddleware<'a, State> {
@@ -91,6 +94,7 @@ impl<'a, State> MatcherMiddleware<'a, State> {
             matcher_states: RefCell::new(VecDeque::new()),
             max_history_size,
             modifier_status_provider,
+            after_injection: Cell::new(false),
         }
     }
 }
@@ -112,8 +116,23 @@ impl<State> Middleware for MatcherMiddleware<'_, State> {
             if let EventType::Keyboard(keyboard_event) = &event.etype {
                 // Backspace handling
                 if keyboard_event.key == Key::Backspace {
-                    trace!("popping the last matcher state");
-                    matcher_states.pop_back();
+                    let after_injection = self.after_injection.replace(false);
+                    let modifiers = self.modifier_status_provider.get_modifier_state();
+                    if modifiers.is_alt_down || modifiers.is_ctrl_down || modifiers.is_meta_down {
+                        // Option/Ctrl+Backspace delete a whole word, Cmd+Backspace a line: the
+                        // buffer no longer reflects the text, popping one state would be wrong
+                        trace!("backspace with modifier, clearing matching state");
+                        matcher_states.clear();
+                    } else if after_injection {
+                        // Right after an expansion the last state is the virtual separator, and
+                        // the one before it belongs to the typed trigger, not to the text on screen.
+                        // Popping back into the trigger broke the next word trigger (#1643).
+                        trace!("backspace right after an expansion, clearing matching state");
+                        matcher_states.clear();
+                    } else {
+                        trace!("popping the last matcher state");
+                        matcher_states.pop_back();
+                    }
                     return event;
                 }
 
@@ -144,6 +163,9 @@ impl<State> Middleware for MatcherMiddleware<'_, State> {
             }
 
             let mut all_results = Vec::new();
+
+            self.after_injection
+                .set(matches!(event.etype, EventType::MatchInjected));
 
             if let Some(matcher_event) = convert_to_matcher_event(&event.etype) {
                 let mut new_states = Vec::new();
@@ -307,13 +329,14 @@ mod tests {
     #[derive(Default)]
     struct MockModifiers {
         is_meta_down: Cell<bool>,
+        is_alt_down: Cell<bool>,
     }
 
     impl ModifierStateProvider for MockModifiers {
         fn get_modifier_state(&self) -> ModifierState {
             ModifierState {
                 is_ctrl_down: false,
-                is_alt_down: false,
+                is_alt_down: self.is_alt_down.get(),
                 is_meta_down: self.is_meta_down.get(),
             }
         }
@@ -366,6 +389,64 @@ mod tests {
 
         // The space typed after the paste must not complete a match with the
         // space typed before it
+        assert!(!detects_match(&middleware, key_press(Key::Space, " ")));
+    }
+
+    fn backspace() -> Event {
+        Event::caused_by(
+            0,
+            EventType::Keyboard(KeyboardEvent {
+                key: Key::Backspace,
+                value: None,
+                status: Status::Pressed,
+                variant: None,
+            }),
+        )
+    }
+
+    #[test]
+    fn test_backspace_after_expansion_does_not_restore_the_trigger_buffer() {
+        // #1643: popping one state after an expansion went back into the typed trigger
+        let matcher = DoubleSpaceMatcher;
+        let matchers: [&dyn Matcher<String>; 1] = [&matcher];
+        let modifiers = MockModifiers::default();
+        let middleware = MatcherMiddleware::new(&matchers, &MockConfig, &modifiers);
+        assert!(!detects_match(&middleware, key_press(Key::Other(30), "a")));
+        assert!(!detects_match(&middleware, key_press(Key::Space, " ")));
+        assert!(detects_match(&middleware, key_press(Key::Space, " ")));
+        middleware.next(Event::caused_by(0, EventType::MatchInjected), &mut |_| {});
+        middleware.next(backspace(), &mut |_| {});
+        assert!(middleware.matcher_states.borrow().is_empty());
+        // the buffer before the expansion ("a  ") must not come back
+        assert!(!detects_match(&middleware, key_press(Key::Space, " ")));
+    }
+
+    #[test]
+    fn test_plain_backspace_still_pops_one_state() {
+        let matcher = DoubleSpaceMatcher;
+        let matchers: [&dyn Matcher<String>; 1] = [&matcher];
+        let modifiers = MockModifiers::default();
+        let middleware = MatcherMiddleware::new(&matchers, &MockConfig, &modifiers);
+        assert!(!detects_match(&middleware, key_press(Key::Space, " ")));
+        assert!(!detects_match(&middleware, key_press(Key::Other(30), "a")));
+        middleware.next(backspace(), &mut |_| {});
+        // " " is left, a second space completes the match
+        assert!(detects_match(&middleware, key_press(Key::Space, " ")));
+    }
+
+    #[test]
+    fn test_option_backspace_clears_the_buffer() {
+        // Option/Ctrl+Backspace delete a whole word, so one popped state is not enough
+        let matcher = DoubleSpaceMatcher;
+        let matchers: [&dyn Matcher<String>; 1] = [&matcher];
+        let modifiers = MockModifiers::default();
+        let middleware = MatcherMiddleware::new(&matchers, &MockConfig, &modifiers);
+        assert!(!detects_match(&middleware, key_press(Key::Space, " ")));
+        assert!(!detects_match(&middleware, key_press(Key::Other(30), "a")));
+        modifiers.is_alt_down.set(true);
+        middleware.next(backspace(), &mut |_| {});
+        modifiers.is_alt_down.set(false);
+        assert!(middleware.matcher_states.borrow().is_empty());
         assert!(!detects_match(&middleware, key_press(Key::Space, " ")));
     }
 }
