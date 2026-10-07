@@ -6,7 +6,8 @@ cd "$(dirname "$0")/.."
 NEU=target/mac/Espanso.app
 [ -x "$NEU/Contents/MacOS/espanso" ] || { echo "Fork nicht gebaut ($NEU fehlt)"; exit 1; }
 ALT=/Applications/Espanso.app
-version_alt=$("$ALT/Contents/MacOS/espanso" --version 2>/dev/null | awk '{print $NF}' || echo unbekannt)
+version_alt=$( ("$ALT/Contents/MacOS/espanso" --version 2>/dev/null || true) | awk 'NR==1 {print $NF}')
+version_alt=${version_alt:-unbekannt}
 SICHERUNG="$HOME/Applications/Espanso-original-${version_alt}.app"
 
 echo "1/4 espanso anhalten"
