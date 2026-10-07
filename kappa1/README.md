@@ -1,7 +1,7 @@
 # Branch `kappa1`
 
 espanso `dev` plus a few fixes, used daily on macOS 26 and tested to start on macOS 27. Version string: `2.4.1-kappa1`.
-Each change is offered upstream as a separate pull request; once merged, this branch is no longer needed.
+Each change is offered upstream as a separate pull request — #2826 (undo separator/graphemes), #2830 (double Backspace), #2829 (buffer on Backspace), #2827 (symlink watcher), #2828 (base.yml); once merged, this branch is no longer needed.
 
 | Change | Issue |
 |---|---|
